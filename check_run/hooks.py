@@ -106,7 +106,7 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
-	"Bank": {"validate": ["check_run.overrides.bank.validate"]},
+	#"Bank": {"validate": ["check_run.overrides.bank.validate"]},
 	"Payment Entry": {
 		"validate": [
 			"check_run.overrides.payment_entry.validate_duplicate_check_number",
