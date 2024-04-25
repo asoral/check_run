@@ -7,7 +7,9 @@ from itertools import groupby, zip_longest
 from io import StringIO
 from typing_extensions import Self
 
-from PyPDF2 import PdfFileWriter
+# from PyPDF2 import PdfFileWriter
+
+from pypdf import PdfWriter
 
 import frappe
 from frappe.model.document import Document
@@ -434,7 +436,8 @@ class CheckRun(Document):
 		initial_check_number = int(self.initial_check_number)
 		if reprint_check_number and reprint_check_number != "undefined":
 			self.initial_check_number = int(reprint_check_number)
-		output = PdfFileWriter()
+		# output = PdfFileWriter()
+		output = PdfWriter()
 		transactions = json.loads(self.transactions)
 		check_increment = 0
 		_transactions = []
@@ -752,7 +755,7 @@ def get_balance(doc: CheckRun | str) -> str:
 @frappe.whitelist()
 def download_checks(docname: str) -> str:
 	has_permission(
-		"Payment Entry", ptype="print", verbose=False, user=frappe.session.user, raise_exception=True
+		"Payment Entry", ptype="print", user=frappe.session.user, raise_exception=True
 	)
 	file_name = frappe.get_value("File", {"attached_to_name": docname})
 	frappe.db.set_value("Check Run", docname, "status", "Confirm Print")
@@ -762,7 +765,7 @@ def download_checks(docname: str) -> str:
 @frappe.whitelist()
 def download_nacha(docname: str) -> None:
 	has_permission(
-		"Payment Entry", ptype="print", verbose=False, user=frappe.session.user, raise_exception=True
+		"Payment Entry", ptype="print", user=frappe.session.user, raise_exception=True
 	)
 	doc = frappe.get_doc("Check Run", docname)
 	settings = get_check_run_settings(doc)
@@ -815,9 +818,10 @@ def build_nacha_file_from_payment_entries(
 		)
 		if not party_bank_account:
 			exceptions.append(f"{pe.party_type} Bank Account missing for {pe.party_name}")
-		party_bank = frappe.db.get_value(pe.party_type, pe.party, "bank")
+		party_bank = frappe.db.get_value(pe.party_type, pe.party, "custom_bank")
 		if not party_bank:
 			exceptions.append(f"{pe.party_type} Bank missing for {pe.party_name}")
+		party_bank_routing_number=None
 		if party_bank:
 			party_bank_routing_number = frappe.db.get_value("Bank", party_bank, "aba_number")
 			if not party_bank_routing_number:
