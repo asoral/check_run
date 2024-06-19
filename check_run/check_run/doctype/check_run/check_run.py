@@ -3,29 +3,28 @@
 import datetime
 import json
 import timeit
-from itertools import groupby, zip_longest
 from io import StringIO
-from typing_extensions import Self
-
-from PyPDF2 import PdfFileWriter
+from itertools import groupby, zip_longest
 
 import frappe
-from frappe.model.document import Document
-from frappe.utils.data import flt
-from frappe.utils.data import nowdate, getdate, now, get_datetime
-from frappe.utils.print_format import read_multi_pdf
-from frappe.permissions import has_permission
-from frappe.utils.file_manager import save_file, remove_all
-from frappe.utils.password import get_decrypted_password
-from frappe.contacts.doctype.address.address import get_default_address
-from frappe.query_builder.custom import ConstantColumn
-from frappe.query_builder.functions import Coalesce, Sum, NullIf
-from frappe.desk.form.load import get_attachments
-
-from erpnext.accounts.utils import get_balance_on
+from atnacha import ACHBatch, ACHEntry, NACHAFile
 from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
+from erpnext.accounts.utils import get_balance_on
+from frappe.contacts.doctype.address.address import get_default_address
+from frappe.desk.form.load import get_attachments
+from frappe.model.document import Document
+from frappe.permissions import has_permission
+from frappe.query_builder.custom import ConstantColumn
+from frappe.query_builder.functions import Coalesce, NullIf, Sum
+from frappe.utils.data import flt, get_datetime, getdate, now, nowdate
+from frappe.utils.file_manager import remove_all, save_file
+from frappe.utils.password import get_decrypted_password
+from frappe.utils.print_format import read_multi_pdf
 
-from atnacha import ACHEntry, ACHBatch, NACHAFile
+# from PyPDF2 import PdfFileWriter
+from pypdf import PdfWriter
+from typing_extensions import Self
+
 from check_run.check_run.doctype.check_run_settings.check_run_settings import (
 	CheckRunSettings,
 	create,
@@ -305,7 +304,7 @@ class CheckRun(Document):
 			if frappe.db.get_value("Mode of Payment", _group[0].mode_of_payment, "type") == "Bank":
 				groups = list(zip_longest(*[iter(_group)] * split))
 			else:
-				groups = [_group]
+				groups = [_group]  # type: ignore
 
 			if not groups:
 				continue
@@ -434,7 +433,8 @@ class CheckRun(Document):
 		initial_check_number = int(self.initial_check_number)
 		if reprint_check_number and reprint_check_number != "undefined":
 			self.initial_check_number = int(reprint_check_number)
-		output = PdfFileWriter()
+		# output = PdfFileWriter()
+		output = PdfWriter()
 		transactions = json.loads(self.transactions)
 		check_increment = 0
 		_transactions = []
@@ -751,9 +751,7 @@ def get_balance(doc: CheckRun | str) -> str:
 
 @frappe.whitelist()
 def download_checks(docname: str) -> str:
-	has_permission(
-		"Payment Entry", ptype="print", verbose=False, user=frappe.session.user, raise_exception=True
-	)
+	has_permission("Payment Entry", ptype="print", user=frappe.session.user, raise_exception=True)
 	file_name = frappe.get_value("File", {"attached_to_name": docname})
 	frappe.db.set_value("Check Run", docname, "status", "Confirm Print")
 	return frappe.get_value("File", file_name, "file_url")
@@ -761,9 +759,7 @@ def download_checks(docname: str) -> str:
 
 @frappe.whitelist()
 def download_nacha(docname: str) -> None:
-	has_permission(
-		"Payment Entry", ptype="print", verbose=False, user=frappe.session.user, raise_exception=True
-	)
+	has_permission("Payment Entry", ptype="print", user=frappe.session.user, raise_exception=True)
 	doc = frappe.get_doc("Check Run", docname)
 	settings = get_check_run_settings(doc)
 	ach_file = doc.build_nacha_file(settings)
@@ -787,6 +783,8 @@ def download_nacha(docname: str) -> None:
 	comment.flags.ignore_permissions = True
 	comment.save()
 	frappe.db.commit()
+	if doc.ach_file_generated:
+		frappe.db.set_value("Check Run", doc.name, "ach_file_generated", 1)
 
 
 def build_nacha_file_from_payment_entries(
@@ -912,3 +910,14 @@ def ach_only(docname: str) -> dict:
 def process_check_run(docname: str) -> None:
 	doc = frappe.get_doc("Check Run", docname)
 	doc.process_check_run()
+
+
+@frappe.whitelist()
+def get_authorized_role_for_ach(doc):
+	doc = frappe._dict(json.loads(doc)) if isinstance(doc, str) else doc
+	role = frappe.db.get_value(
+		"Check Run Settings",
+		{"pay_to_account": doc.pay_to_account, "bank_account": doc.bank_account},
+		"role_allowed_to_download_ach_file_multiple_times",
+	)
+	return role
